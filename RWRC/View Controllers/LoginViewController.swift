@@ -27,7 +27,7 @@
 /// THE SOFTWARE.
 
 import UIKit
-
+import FirebaseAuth
 class LoginViewController: UIViewController {
   
   @IBOutlet var actionButton: UIButton!
@@ -66,6 +66,8 @@ class LoginViewController: UIViewController {
   
   @IBAction func actionButtonPressed() {
     signIn()
+    Auth.auth().signInAnonymously(completion: nil)
+
   }
   
   @objc private func textFieldDidReturn() {
