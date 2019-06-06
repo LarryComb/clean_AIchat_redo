@@ -33,11 +33,18 @@ import FirebaseFirestore
 
 final class ChatViewController: MessagesViewController {
   
+  private let db = Firestore.firestore()
+  private var reference: CollectionReference?
+  
   private var messages: [Message] = []
   private var messageListener: ListenerRegistration?
 
   private let user: User
   private let channel: Channel
+  
+  deinit {
+    messageListener?.remove()
+  }
   
   init(user: User, channel: Channel) {
     self.user = user
@@ -51,8 +58,17 @@ final class ChatViewController: MessagesViewController {
     fatalError("init(coder:) has not been implemented")
   }
   
+  
+  
   override func viewDidLoad() {
     super.viewDidLoad()
+    
+    guard let id = channel.id else {
+      navigationController?.popViewController(animated: true)
+      return
+    }
+    
+    reference = db.collection(["channels", id, "thread"].joined(separator: "/"))
     
     navigationItem.largeTitleDisplayMode = .never
     
@@ -63,9 +79,70 @@ final class ChatViewController: MessagesViewController {
     messagesCollectionView.messagesDataSource = self
     messagesCollectionView.messagesLayoutDelegate = self
     messagesCollectionView.messagesDisplayDelegate = self
+    
+    messageListener = reference?.addSnapshotListener { querySnapshot, error in
+      guard let snapshot = querySnapshot else {
+        print("Error listening for channel updates: \(error?.localizedDescription ?? "No error")")
+        return
+      }
+      
+      snapshot.documentChanges.forEach { change in
+        self.handleDocumentChange(change)
+      }
+    }
+
   }
   
+  
+  // MARK: - Helpers
+  
+  private func save(_ message: Message) {
+    reference?.addDocument(data: message.representation) { error in
+      if let e = error {
+        print("Error sending message: \(e.localizedDescription)")
+        return
+      }
+      
+      self.messagesCollectionView.scrollToBottom()
+    }
+  }
+  
+  private func insertNewMessage(_ message: Message) {
+    
+    guard !messages.contains(message) else {
+      return
+    }
+    
+    messages.append(message)
+    messages.sort()
+    
+    let isLatestMessage = messages.index(of: message) == (messages.count - 1)
+    let shouldScrollToBottom = messagesCollectionView.isAtBottom && isLatestMessage
+    
+    messagesCollectionView.reloadData()
+    
+    if shouldScrollToBottom {
+      DispatchQueue.main.async {
+        self.messagesCollectionView.scrollToBottom(animated: true)
+      }
+    }
+  }
+  private func handleDocumentChange(_ change: DocumentChange) {
+    guard let message = Message(document: change.document) else {
+      return
+    }
+    
+    switch change.type {
+    case .added:
+      insertNewMessage(message)
+      
+    default:
+      break
+    }
+  }
 }
+
+
 
 // MARK: - MessagesDisplayDelegate
 
@@ -162,6 +239,18 @@ extension ChatViewController: MessagesDataSource {
 // MARK: - MessageInputBarDelegate
 
 extension ChatViewController: MessageInputBarDelegate {
+
+  func messageInputBar(_ inputBar: MessageInputBar, didPressSendButtonWith text: String) {
+    
+    // 1
+    let message = Message(user: user, content: text)
+    
+    // 2
+    save(message)
+    
+    // 3
+    inputBar.inputTextView.text = ""
+  }
   
 }
 
